@@ -1,0 +1,77 @@
+\documentclass[12pt]{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}
+\begin{document}
+
+\title{ROB7 Advanced Robotic Perception -- Mini-project: Soccer ball tracking}
+\date{}
+\maketitle
+
+%Briefly justify why you chose the methods you did
+\section{Methods Justification}
+I only used methods that were presented and explained in the lectures (ARP1--ARP8).
+
+\textbf{Non-NN:} The ball is a small, bright, roughly round blob on green grass, so candidates are found with a Difference of Gaussians blob detector (ARP1) inside a green field mask. Each candidate is described with HOG (ARP2) plus simple colour and motion features, and classified with an SVM (ARP3). This is the classic HOG+SVM detection pipeline from the slides. A linear SVM first removes most candidates, and an RBF SVM (with PCA, ARP2) scores the remaining 30. For the motion feature, the camera motion is removed with corners, Lucas--Kanade optical flow (ARP7) and RANSAC (ARP2) before frame differencing.
+
+\textbf{NN:} Faster R-CNN (ARP6) was chosen because it is the detector covered in most depth in the lectures. YOLO and DETR were only briefly mentioned. Its anchors were made smaller (8--128 px) because the ball is only about 4--8 px wide.
+
+\textbf{Tracking (both):} The detections go into the same Kalman filter (ARP8) with a constant-velocity model and Mahalanobis gating. The filter bridges missed detections and removes single wrong detections. A colour-histogram comparison detects shot cuts, and the tracker is reset at each cut. Finally, a static-ball penalty lowers the score of detections that do not move on the pitch (using the same optical flow + RANSAC homography). I added this because the test clip has spare balls lying beside the pitch.
+
+%How did you train your models? Include description of which training data you used, and why.
+\section{Model Training}
+Both models are trained on the SoccerNet tracking data, using only the ball labels. It is broadcast football with box labels for every frame, so it is close to the test clip. The frames are downscaled from 1920$\times$1080 to 640$\times$360 to match the test clip. The data is split by game: games 4, 6, 7, 8 and 11 (86 sequences) for training, and game 9 for validation. This way the validation stadium is never seen during training. At first I only used 2 games, but the models did not generalise well to the test clip, so I added the SoccerNet test split to get more stadiums and broadcasts.
+
+\textbf{Non-NN:} Every 8th frame was used. Candidates within 3 px of the ball are positives, and 40 random candidates more than 8 px away are negatives (329k samples, 6.3k positives). The linear SVM ($C$ chosen on validation) uses all samples. The RBF SVM uses all positives and 40k negatives because of training time.
+
+\textbf{NN:} Faster R-CNN, pretrained on COCO (transfer learning, ARP6), fine-tuned on every 10th frame (6450 images) for 4 epochs. Settings: SGD with learning rate 0.01, batch size 2, about 1 hour on an RTX 2060. Data augmentation (ARP4) was used: flips, zoom, brightness/colour changes, blur and strong JPEG compression, to make the training images look more like the compressed test video.
+
+The tracker thresholds were tuned on the validation game.
+
+%How did you annotate the test data (which tool, etc.)?
+\section{Test Data Annotation}
+I read about CVAT and did try it, but I did not get how it really worked, so I created my own simple tool (\texttt{annotate\_ball.py}, OpenCV). It shows every 5th frame of the clip enlarged with a zoom window. I click on the ball centre, or press N if the ball is not visible. As a starting point, a COCO-pretrained detector (not trained on SoccerNet) suggests a position, but I checked every frame and clicked 208 of the 223 visible balls myself. This gave 300 annotated frames, 77 of them without a visible ball. A prediction counts as correct if it is within 5 px of my click.
+
+%What were the pros and cons of the NN-based vs. non-NN-based methods you implemented?
+\section{NN-based vs. Non-NN-based Methods}
+\begin{table}[h]
+\centering
+\begin{tabular}{lcccc}
+\toprule
+ & \multicolumn{2}{c}{Validation F1 (game 9)} & \multicolumn{2}{c}{Test F1 (Denmark--Wales)} \\
+Method & + Kalman & + static pen. & + Kalman & + static pen. \\
+\midrule
+Non-NN (DoG + HOG/SVM) & 0.63 & 0.64 & 0.54 & 0.57 \\
+NN (Faster R-CNN) & 0.87 & 0.85 & 0.47 & 0.67 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On the test clip the final NN reaches precision 0.60 and recall 0.76, and the non-NN reaches precision 0.52 and recall 0.62. Both methods lose a lot from validation to test. The main reasons are spare balls next to the pitch (they are real balls, but not the match ball), close-ups, players in front of the ball and video compression.
+
+\textbf{NN pros:} much better detection (top-1 ball 0.73 vs.\ 0.56 on validation) and no hand-made features. \textbf{NN cons:} it needs a GPU and about 1 hour of training, it is a black box, and it was the most sensitive to the domain change. Without the static penalty it locks onto the spare balls.
+
+\textbf{Non-NN pros:} it runs on the CPU, every step is easy to understand and tune, and it generalised more stably (less drop to the test clip). \textbf{Non-NN cons:} it has many hand-tuned parameters (blob sizes, thresholds, features), it is weaker overall, and it misses the ball when it is not a clean white blob (motion blur, at the feet of players).
+
+If better results were wanted, newer detectors that were only briefly mentioned in the lectures, like YOLO (v11+) or RF-DETR together with a tracker like ByteTrack (ARP6, ARP8), would probably do better.
+
+%How would you expect your model performs for ball tracking in other sports (volleyball, golf, ...)?
+\section{Model Performance in Other Sports}
+I would not expect these methods to work very well in other sports. Most other sports use smaller and/or faster balls (tennis, golf, table tennis), maybe besides basketball. The non-NN method is built for a white blob on green grass (field mask, blob size), so it would need to be redesigned for other courts and ball colours. The NN would at least need to be retrained with data from that sport. Small and fast balls become blurred streaks, and the constant-velocity Kalman filter does not fit well to balls that bounce a lot or curve.
+
+%Please declare your use of Generative AI for the project
+\section{Generative AI Declaration}
+
+Generative AI (Microsoft Copilot/ChatGPT) was used as a supporting tool during this project.
+
+The project methodology, model design, and implementation choices were based on knowledge and techniques covered in the ARP lectures (ARP1--ARP8). All core code, experiments, training procedures, and evaluations were implemented and conducted by myself.
+
+AI assistance was used in two ways:
+
+\begin{itemize} 
+    \item The repository README was generated from an initial bare structure, where the AI was tasked with expanding it into a more detailed description of the repository contents, setup procedure, and usage instructions. 
+    \item During development, GitHub Copilot was used as a programming assistant for code completion, refactoring suggestions, and small efficiency improvements. This was particularly useful for reducing processing time and improving implementation efficiency, especially for the neural-network-based training and evaluation pipeline. 
+\end{itemize}
+
+The final code, methodology, experiments, reported results, and conclusions were reviewed and authored by me. No AI-generated content was used to determine the scientific methodology or to interpret the experimental results.
+
+\end{document}

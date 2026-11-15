@@ -1,0 +1,22 @@
+# SoccerNet data (download separately)
+data/SoccerNet/
+
+# provided test clip (from Moodle)
+data/*.mp4
+
+# generated
+cache/
+*.pkl
+*.pt
+__pycache__/
+.ipynb_checkpoints/
+
+# LaTeX build files
+doc/*.aux
+doc/*.log
+doc/*.synctex.gz
+doc/*.fls
+doc/*.fdb_latexmk
+
+# State files
+state/
